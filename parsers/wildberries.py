@@ -12,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 # ====================== ГЛОБАЛЬНЫЕ НАСТРОЙКИ ======================
-TARGET_PRODUCT_COUNT = 20            # Сколько товаров нужно спарсить
+TARGET_PRODUCT_COUNT = 30            # Сколько товаров нужно спарсить
 
 # === Настройки борьбы с AntiBot ===
 MAX_ANTIBOT_ATTEMPTS = 3            # Максимальное количество попыток на один товар
@@ -57,12 +57,35 @@ def setup_logger() -> logging.Logger:
 
 logger = setup_logger()
 
+def get_chrome_major_version() -> int | None:
+    """Автоматически определяет major-версию установленного Chrome из реестра Windows.
+    Если не получится — возвращает None (undetected_chromedriver будет определять сам)."""
+    try:
+        import winreg
+        # Путь для пользовательской установки Chrome
+        key_path = r"SOFTWARE\Google\Chrome\BLBeacon"
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path)
+        version, _ = winreg.QueryValueEx(key, "version")
+        winreg.CloseKey(key)
+        
+        major = int(version.split(".")[0])
+        logger.info("✅ Обнаружена версия Chrome: %s (major %d)", version, major)
+        return major
+    except Exception as e:
+        logger.warning("Не удалось определить версию Chrome через реестр (%s). "
+                       "Будет использован авто-режим undetected_chromedriver", e)
+        return None
 
 def get_driver():
-    logger.info("Создаём undetected_chromedriver для Wildberries...")
+    """Создаёт и возвращает undetected Chrome driver."""
+    logger.info("Создаём undetected_chromedriver...")
+    
+    # получаем актуальную версию Chrome
+    chrome_major = get_chrome_major_version()
+    
     options = uc.ChromeOptions()
     options.page_load_strategy = "eager"
-
+    # options.add_argument("--headless=new")         # раскомментировать при необходимости
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-infobars")
@@ -73,14 +96,19 @@ def get_driver():
     options.add_argument("--window-size=1920,1080")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    ) 
+
+    driver = uc.Chrome(
+        options=options,
+        use_subprocess=True,
+        version_main=chrome_major,
     )
-
-    driver = uc.Chrome(options=options, use_subprocess=True)
+    
     driver.set_page_load_timeout(12)
-    logger.info("Браузер успешно создан")
+    logger.info("Браузер успешно создан (Chrome %s)", 
+                chrome_major if chrome_major else "auto")
     return driver
-
 
 # ====================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======================
 
