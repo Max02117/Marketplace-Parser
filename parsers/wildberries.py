@@ -112,6 +112,19 @@ def get_driver():
 
 # ====================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======================
 
+def wait_for_user_region_selection():
+    """Останавливает выполнение и ждёт, пока пользователь вручную выберет регион на Ozon."""
+    print("\n" + "="*70)
+    print("ОЖИДАНИЕ ВЫБОРА РЕГИОНА")
+    print("1. В открывшемся браузере выберите нужный регион (город), для точности цены.")
+    print("2. Дождитесь, пока страница полностью обновится после выбора региона")
+    print("3. Когда всё готово — нажмите клавишу **ENTER** в этом окне консоли.")
+    print("="*70)
+    
+    input("Нажмите ENTER для продолжения парсинга... ")
+    print("✅ Регион выбран. Продолжаем работу...\n")
+    time.sleep(2)  # небольшая пауза после продолжения
+
 def normalize_url(url: str) -> str:
     """Приводит относительные ссылки к полному виду"""
     if not url:
@@ -151,15 +164,25 @@ def is_antibot_page(driver, extra_text: str = "") -> bool:
 
 
 def collect_product_links(driver, max_items: int) -> list[str]:
-    """Собирает ссылки на товары с поисковой страницы"""
+    """Собирает ссылки на товары с поисковой страницы WB.
+    Игнорирует блок «Возможно, вам понравится» и другие слайдеры рекомендаций."""
     logger.info("Начинаем сбор ссылок на товары WB (нужно %d)", max_items)
     links: list[str] = []
     seen = set()
-    scroll_rounds = 8
+    scroll_rounds = 10  # количество скролла
 
     for step in range(scroll_rounds):
         new_links = 0
-        for a in driver.find_elements(By.XPATH, "//a[contains(@class, 'product-card__link') and contains(@href, '/detail.aspx')]"):
+
+        # XPATH
+        xpath = (
+            "//a[contains(@class, 'product-card__link') "
+            "and contains(@href, '/detail.aspx') "
+            "and not(ancestor::div[contains(@class, 'sliderContainer--k0JDd')]) "
+            "and not(ancestor::section[contains(@class, 'j-b-recommended-goods-wrapper')])]"
+        )
+
+        for a in driver.find_elements(By.XPATH, xpath):
             try:
                 href = normalize_url(a.get_attribute("href") or "")
                 if is_product_url(href) and href not in seen:
@@ -169,16 +192,18 @@ def collect_product_links(driver, max_items: int) -> list[str]:
             except Exception:
                 continue
 
-        logger.debug("Скролл %d/%d: найдено %d новых ссылок | Всего: %d", step + 1, scroll_rounds, new_links, len(links))
+        logger.debug("Скролл %d/%d: найдено %d новых ссылок | Всего: %d",
+                     step + 1, scroll_rounds, new_links, len(links))
 
         if len(links) >= max_items:
-            logger.info("Достигнут лимит %d товаров", max_items)
+            logger.info("Достигнут лимит %d товаров, прерываем сбор", max_items)
             break
 
+        # Прокрутка
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(random.uniform(0.25, 0.55))
+        time.sleep(random.uniform(0.3, 0.7))
 
-    logger.info("Сбор ссылок завершён. Собрано: %d товаров", len(links))
+    logger.info("Сбор ссылок завершён. Собрано: %d товаров (рекомендации исключены)", len(links))
     return links
 
 
@@ -456,6 +481,9 @@ def main(url: str = None, output: str = None):
         print("Открываем страницу поиска WB...")
         driver.get(url)
         time.sleep(1.5)
+        
+         # Ожидание ручного выбора региона
+        wait_for_user_region_selection()
 
         WebDriverWait(driver, 6).until(lambda d: len(d.find_elements(By.XPATH, "//a[contains(@class, 'product-card__link')]")) > 0)
 
