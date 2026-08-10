@@ -254,7 +254,9 @@ def parse_search_items(page: dict) -> list[dict]:
 
 
 def paginator_next_page(page: dict) -> str | None:
-    """nextPage из infiniteVirtualPaginator - готовый путь+query для следующей страницы выдачи, отдаёт сам Ozon (там же непрозрачные paginator_token/search_page_state/start_page_id)."""
+    """nextPage - готовый путь+query для следующей страницы выдачи. На 1-й странице лежит внутри виджета infiniteVirtualPaginator/paginator, на последующих страницах - на верхнем уровне ответа."""
+    if page.get("nextPage"):
+        return page["nextPage"]
     for name in ("infiniteVirtualPaginator", "paginator"):
         w = widget(page, name)
         if w and w.get("nextPage"):
@@ -434,8 +436,16 @@ def search(session: OzonSession, base_path: str, query: str, limit: int = 12, ex
 
         next_path = paginator_next_page(page_json)
         if not next_path:
-            logger.info("Пагинация закончилась (нет nextPage) на странице %d", page_num)
+            diag = {}
+            for name in ("infiniteVirtualPaginator", "paginator"):
+                w = widget(page_json, name)
+                if w is not None:
+                    diag[name] = list(w.keys())
+            if not diag:
+                diag = sorted({_widget_name(k) for k in (page_json.get("widgetStates") or {})})
+            logger.info("Пагинация закончилась (нет nextPage) на странице %d. Диагностика: %s", page_num, diag)
             break
+        
         if not new_items:
             logger.warning("Страница %d не дала новых товаров, останавливаемся во избежание цикла", page_num)
             break
