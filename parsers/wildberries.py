@@ -61,9 +61,10 @@ def _bootstrap_session(page_url: str) -> None:
         browser = launch_chromium(
             p,
             headless=True,
+            channel="chromium",
             args=["--disable-blink-features=AutomationControlled"],
         )
-        
+
         tmp_page = browser.new_page()
         honest_ua = real_chrome_ua(tmp_page.evaluate("() => navigator.userAgent"))
         tmp_page.close()
@@ -74,15 +75,27 @@ def _bootstrap_session(page_url: str) -> None:
             user_agent=honest_ua,
         )
         page = context.new_page()
+
+        nav_headers: dict[str, str] = {}
+        def _capture(req):
+            if req.is_navigation_request() and not nav_headers:
+                nav_headers.update(req.headers)
+        page.on("request", _capture)
+
         page.goto(page_url, wait_until="load", timeout=30_000)
         page.wait_for_timeout(3_000)
 
         _real_ua = honest_ua
         _device_id = _find_device_id(page)
         cookies = {c["name"]: c["value"] for c in context.cookies()}
+        title = page.title() or ""
+        try:
+            html_len = len(page.content() or "")
+        except Exception:
+            html_len = -1
         browser.close()
 
-#    _session.headers.update({"User-Agent": _real_ua})
+    _session.headers.update({"User-Agent": _real_ua})
     for name, value in cookies.items():
         _session.cookies.set(name, value)
     _wbauid = cookies.get("_wbauid")
@@ -91,7 +104,10 @@ def _bootstrap_session(page_url: str) -> None:
         logger.debug("deviceid не найден в localStorage, сгенерирован свой: %s", _device_id)
     if "x_wbaas_token" not in cookies:
         logger.warning("x_wbaas_token не получен после bootstrap - запросы могут не пройти")
-    logger.info("Bootstrap готов: UA=%s, deviceid=%s, cookie=%s", _real_ua, _device_id, list(cookies))
+    logger.info(
+        "Bootstrap готов: UA=%s, deviceid=%s, cookie=%s, title=%r, длина HTML=%d, sec-ch-ua=%s",
+        _real_ua, _device_id, list(cookies), title, html_len, nav_headers.get("sec-ch-ua"),
+    )
 
 
 def _ensure_session(page_url: str) -> None:
